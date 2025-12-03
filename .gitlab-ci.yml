@@ -1,0 +1,138 @@
+# GitLab CI/CD Pipeline for FOSSA CLI Training
+# This pipeline demonstrates how to integrate FOSSA CLI into GitLab CI/CD
+
+stages:
+  - install
+  - security
+  - test
+  - report
+
+variables:
+  NODE_VERSION: "18"
+
+# Cache node_modules to speed up builds
+cache:
+  key: $CI_COMMIT_REF_SLUG
+  paths:
+    - node_modules/
+
+# Install dependencies
+install_dependencies:
+  stage: install
+  image: node:${NODE_VERSION}
+  script:
+    - npm ci
+  artifacts:
+    paths:
+      - node_modules/
+    expire_in: 1 hour
+
+# FOSSA Security Scan
+fossa_scan:
+  stage: security
+  image: node:${NODE_VERSION}
+  dependencies:
+    - install_dependencies
+  before_script:
+    - echo "Installing FOSSA CLI..."
+    - curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+    - fossa --version
+  script:
+    - echo "Running FOSSA analysis..."
+    - fossa analyze --debug
+    - echo "FOSSA analysis completed successfully!"
+  variables:
+    FOSSA_API_KEY: $FOSSA_API_KEY
+  artifacts:
+    when: on_failure
+    paths:
+      - fossa.debug.json
+      - fossa.debug.zip
+    expire_in: 1 week
+  only:
+    - main
+    - develop
+    - merge_requests
+
+# FOSSA Policy Test
+fossa_test:
+  stage: test
+  image: node:${NODE_VERSION}
+  dependencies:
+    - install_dependencies
+  before_script:
+    - curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+  script:
+    - echo "Running FOSSA policy test..."
+    - fossa test
+    - echo "Policy test completed!"
+  variables:
+    FOSSA_API_KEY: $FOSSA_API_KEY
+  allow_failure: true  # Allow pipeline to continue even if policy violations exist
+  only:
+    - main
+    - develop
+
+# Local Analysis (for merge requests)
+fossa_local_analysis:
+  stage: security
+  image: node:${NODE_VERSION}
+  dependencies:
+    - install_dependencies
+  before_script:
+    - curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+  script:
+    - echo "Running local FOSSA analysis (no upload)..."
+    - fossa analyze --output > fossa-results.json
+    - echo "Local analysis completed!"
+    - echo "=== DISCOVERED PACKAGES ==="
+    - cat fossa-results.json | jq
+  artifacts:
+    paths:
+      - fossa-results.json
+    expire_in: 1 week
+    reports:
+      # Generate a custom report for GitLab
+      junit: fossa-results.json
+  only:
+    - merge_requests
+
+# Generate FOSSA Reports
+fossa_reports:
+  stage: report
+  image: node:${NODE_VERSION}
+  dependencies:
+    - install_dependencies
+  before_script:
+    - curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+  script:
+    - echo "Generating FOSSA reports..."
+    - fossa report attribution --json > attribution-report.json || echo "Attribution report failed"
+    - echo "Reports generation completed!"
+  variables:
+    FOSSA_API_KEY: $FOSSA_API_KEY
+  artifacts:
+    paths:
+      - attribution-report.json
+    expire_in: 1 month
+  only:
+    - main
+    - develop
+  when: manual  # Run manually to generate reports
+
+# Scheduled security scan (weekly)
+scheduled_scan:
+  stage: security
+  image: node:${NODE_VERSION}
+  before_script:
+    - npm ci
+    - curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+  script:
+    - echo "Running scheduled FOSSA security scan..."
+    - fossa analyze --debug
+    - fossa test
+  variables:
+    FOSSA_API_KEY: $FOSSA_API_KEY
+  only:
+    variables:
+      - $CI_PIPELINE_SOURCE == "schedule"
