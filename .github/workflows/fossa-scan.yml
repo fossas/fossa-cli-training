@@ -1,0 +1,99 @@
+name: FOSSA Security Scan
+
+on:
+  # push:
+  #   branches: [ main, master, develop ]
+  # pull_request:
+  #   branches: [ main, master ]
+  # schedule:
+  #   # Run weekly scan on Mondays at 8 AM UTC
+  #   - cron: '0 8 * * 1'
+  workflow_dispatch:
+
+jobs:
+  fossa-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install FOSSA CLI
+      run: |
+        curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+        fossa --version
+
+    - name: Run FOSSA Analysis
+      env:
+        FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+      run: |
+        echo "Running FOSSA analysis..."
+        fossa analyze --debug
+        echo "Analysis complete!"
+
+    - name: Run FOSSA Test (Policy Check)
+      env:
+        FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+      run: |
+        echo "Running FOSSA policy test..."
+        fossa test --debug
+        echo "Policy test complete!"
+
+    - name: Upload FOSSA debug information (on failure)
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: fossa-debug
+        path: |
+          fossa.debug.zip
+        retention-days: 7
+
+  # Optional: Run local analysis without uploading to FOSSA
+  local-analysis:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install FOSSA CLI
+      run: |
+        curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+
+    - name: Run Local FOSSA Analysis
+      run: |
+        echo "Running local FOSSA analysis (no upload)..."
+        fossa analyze --output > fossa-results.json
+        echo "Local analysis complete!"
+
+    - name: Display discovered packages
+      run: |
+        echo "## FOSSA Analysis Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Discovered vulnerable packages:" >> $GITHUB_STEP_SUMMARY
+        jq -r '.projects[0].graph.deps[] | "- **\(.name)** version \(.version.value // .version)"' fossa-results.json >> $GITHUB_STEP_SUMMARY || echo "No packages found or JSON parsing failed"
+
+    - name: Upload analysis results
+      uses: actions/upload-artifact@v3
+      with:
+        name: fossa-analysis-results
+        path: fossa-results.json
