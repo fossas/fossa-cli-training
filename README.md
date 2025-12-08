@@ -177,7 +177,7 @@ When you run FOSSA on this repository, you should see:
 
 This training material is provided under the MIT License. See LICENSE file for details.
 
-**Remember:** This is for training purposes only. Never use these vulnerable packages in production!!
+**Remember:** This is for training purposes only. Never use these vulnerable packages in production!
 
 ---
 
