@@ -90,7 +90,7 @@ fossa list-targets
 **Expected Output:**
 ```
 Found project: npm@./
-Found target: npm@./:fossa-cli-training-demo
+Found target: npm@./
 ```
 
 ### 2. Basic Analysis
